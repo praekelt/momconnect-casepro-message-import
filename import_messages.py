@@ -1,12 +1,9 @@
 import json
 import logging
 import re
-import requests
 from uuid import UUID
 
-EXISTING = 'casepro_existing.txt'
-VUMIGO_MSGS = 'vumigo_messages.json'
-CASEPRO_URL = 'http://testing.localhost:8000/junebug/inbound'
+from settings import EXISTING, VUMIGO_MSGS, MISSED_MESSAGES
 
 logging.basicConfig(level=logging.INFO)
 
@@ -21,12 +18,6 @@ def get_casepro_existing(path):
         for i in f:
             ids.add(int(i))
     return ids
-
-
-def get_session():
-    s = requests.Session()
-    s.mount(CASEPRO_URL, requests.adapters.HTTPAdapter(max_retries=5))
-    return s
 
 
 def msg_to_data(msg):
@@ -54,13 +45,12 @@ def msg_is_ussd_code(msg):
 
 def main():
     existing = get_casepro_existing(EXISTING)
-    session = get_session()
     countexisting = 0
     countnew = 0
     counterrors = 0
     countkeyword = 0
     countussd = 0
-    with open(VUMIGO_MSGS) as f:
+    with open(VUMIGO_MSGS) as f, open(MISSED_MESSAGES, 'w') as mm:
         for i, l in enumerate(f):
             try:
                 msg = json.loads(l)
@@ -92,22 +82,11 @@ def main():
                     'Message is a ussd number, skipping. {}'.format(data))
                 countussd += 1
             else:
-                try:
-                    r = session.post(CASEPRO_URL, json=data)
-                except Exception as e:
-                    logging.error('Error sending message {}. {}'.format(
-                        data, e.message))
-                    counterrors += 1
-                    continue
-                if r.status_code < 200 or r.status_code > 299:
-                    logging.error(
-                        'Casepro response error sending message {}. '
-                        'Response {}'.format(data, r.text))
-                    counterrors += 1
-                    continue
-                logging.info('Sent to casepro: {}'.format(data))
+                mm.write(l)
+                logging.info('Not in casepro: {}'.format(data))
                 countnew += 1
-    logging.info('Sent {} new messages to casepro'.format(countnew))
+    mm.close()
+    logging.info('{} new messages not in casepro'.format(countnew))
     logging.info('Skipped {} existing messages in casepro'.format(
         countexisting))
     logging.info('Skipped {} keyword messages'.format(countkeyword))
